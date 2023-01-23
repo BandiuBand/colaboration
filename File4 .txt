@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 12345 
+=======
+Hello my name is Bandiu
+>>>>>>> f0eb897516a8ac734b05c202cc99aeed6f576706
