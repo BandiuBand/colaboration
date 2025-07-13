@@ -1,4 +1,5 @@
+from .llm import LLM
 from .step import Step
 from .processor import DatasetProcessor
 
-__all__ = ["Step", "DatasetProcessor"]
+__all__ = ["LLM", "Step", "DatasetProcessor"]
