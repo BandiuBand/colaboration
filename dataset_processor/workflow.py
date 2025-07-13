@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Tuple
+import json
 
 from .llm import LLM
 from .step import Step
@@ -29,21 +30,51 @@ class Workflow:
             validation_prompt="Check that all necessary data is present.",
             llm=self.llm,
         )
-        step_randomize = Step(
+        step_extract = Step(
             task_prompt=(
-                "Replace the facts in the following text with random alternatives:\n{prompt}"
+                "Extract factual statements from the text and replace them with placeholders. "
+                "Respond with JSON {\"text\": replaced_text, \"facts\": [facts]}:\n{prompt}"
             ),
-            validation_prompt="Verify the facts were randomized.",
+            validation_prompt="Ensure the JSON contains 'text' and 'facts' fields.",
             llm=self.llm,
         )
-        return [step_gather, step_randomize]
+        return [step_gather, step_extract]
+
+    def _extract_facts(self, text: str) -> Tuple[str, List[str]]:
+        """Use LLM to identify facts and replace them with placeholders."""
+        raw = self.steps[1].execute({"prompt": text})
+        data = json.loads(raw)
+        replaced = data.get("text", "")
+        facts = data.get("facts", [])
+        if not isinstance(facts, list):
+            raise ValueError("`facts` field must be a list")
+        return replaced, facts
+
+    def _generate_replacements(self, facts: List[str], context: str) -> List[str]:
+        """Generate random substitutes for each fact using the LLM."""
+        replacements: List[str] = []
+        for fact in facts:
+            prompt = (
+                "Given the context below, replace the fact with a random variant that "
+                "still makes sense.\nContext:\n" + context + "\nFact: " + fact
+            )
+            replacements.append(self.llm.process(prompt).strip())
+        return replacements
+
+    def _apply_replacements(self, text: str, replacements: List[str]) -> str:
+        result = text
+        for i, repl in enumerate(replacements, start=1):
+            result = result.replace(f"FACT_{i}", repl)
+        return result
 
     def run(self) -> List[Dict[str, Any]]:
         """Execute the workflow and return the augmented dataset."""
         results: List[Dict[str, Any]] = []
         for entry in self.dataset:
-            initial_prompt = self.steps[0].execute(entry)
+            filled = self.steps[0].execute(entry)
+            base_text, facts = self._extract_facts(filled)
             for _ in range(self.num_variations):
-                new_prompt = self.steps[1].execute({"prompt": initial_prompt})
+                subs = self._generate_replacements(facts, filled)
+                new_prompt = self._apply_replacements(base_text, subs)
                 results.append({"prompt": new_prompt})
         return results
